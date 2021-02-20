@@ -1,6 +1,9 @@
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
 
+#include <QtMath>
+#include <stack>
+
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , ui(new Ui::MainWindow)
@@ -8,6 +11,7 @@ MainWindow::MainWindow(QWidget *parent)
     ui->setupUi(this);
 
     ui->output_screen->setPlainText(this->expression);
+    qDebug() << qPow(-2,2.5);
 }
 
 MainWindow::~MainWindow()
@@ -15,6 +19,227 @@ MainWindow::~MainWindow()
     delete ui;
 }
 
+bool is_operation(const QString& str)
+{
+    return str[0] == '+'
+        || str[0] == '-'
+        || str[0] == '*'
+        || str[0] == '/'
+        || str[0] == '^';
+}
+
+bool is_oper_trig(const QString& str)
+{
+    return str[0] == '+'
+        || str[0] == '-'
+        || str[0] == '*'
+        || str[0] == '/'
+        || str[0] == '^'
+        || str[0] == 's'
+        || str[0] == 'c';
+}
+
+bool is_binary(const QString& str)
+{
+    if (str[0] == 's' || str[0] == 'c')
+        return false;
+    return true;
+}
+
+bool is_digit(const QString& str)
+{
+    bool flag{ false };
+    for (auto& i : str)
+    {
+        if (i >= '0' && i <= '9')
+            flag = true;
+    }
+    return flag;
+}
+
+int priority(const QString& str)
+{
+    switch (str[0].toLatin1())
+    {
+    case '(':
+    case 's': /*sin*/
+    case 'c': /*cos*/
+        return 1;
+    case '+':
+    case '-':
+        return 2;
+    case '*':
+    case '/':
+        return 3;
+    case '^':
+        return 4;
+    default:
+        return 0;
+    }
+}
+
+
+/*токенизация*/
+bool get_tokens(std::vector<QString>& tokens, const QString& expression)
+{
+    QString tmp;
+    bool incorrect{false};
+    std::stack<QChar> check;
+    for (unsigned long long i = 0; i < expression.length(); i++)
+    {
+        if (expression[i].isNumber() || expression[i] == '.')
+        {
+            tmp += expression[i];
+        }
+        else
+        {
+            if ((expression[i] == '+' || expression[i] == '-') && (i == 0 || !is_digit(QString{ expression[i - 1] })))
+            {
+                tmp += expression[i];
+            }
+            else
+            {
+                if (tmp.length())
+                {
+                    tokens.push_back(tmp);
+                    tmp.clear();
+                }
+                if (expression[i] == 's' || expression[i] == 'c')
+                {
+                    tokens.push_back(expression.mid(i, 4));
+                    i += 3;
+                }
+                else
+                {
+                    tokens.push_back(QString{ expression[i] });
+                }
+
+
+                if (expression[i] == '(')
+                    check.push(expression[i]);
+                if (expression[i] == ')')
+                {
+                    if (check.empty() || check.top() != '(')
+                        incorrect = true;
+                    else
+                        check.pop();
+                }
+            }
+        }
+    }
+    if (tmp.length())
+    {
+        tokens.push_back(tmp);
+    }
+    if (!check.empty())
+    {
+        incorrect = true;
+    }
+    return incorrect;
+}
+
+void get_post_tokens(const std::vector<QString>& tokens, std::vector<QString>& post_tokens)
+{
+    std::stack<QString> st;
+
+    for (auto& i : tokens)
+    {
+        if (is_digit(i))
+        {
+            post_tokens.push_back(i);
+        }
+        else if (is_operation(i))
+        {
+            if (st.empty())
+            {
+                st.push(i);
+            }
+            else
+            {
+                while (!st.empty() && priority(st.top()) >= priority(i))
+                {
+                    post_tokens.push_back(st.top());
+                    st.pop();
+                }
+                st.push(i);
+            }
+        }
+        else if (priority(i) == 1)
+        {
+            st.push(i);
+        }
+        else if (i[0] == ')')
+        {
+            while (priority(st.top()) != 1)
+            {
+                post_tokens.push_back(st.top());
+                st.pop();
+            }
+            if (st.top() == "sin(" || st.top() == "cos(")
+            {
+                post_tokens.push_back(st.top().mid(0, 3));
+            }
+            st.pop();
+        }
+    }
+    while (!st.empty())
+    {
+        post_tokens.push_back(st.top());
+        st.pop();
+    }
+}
+
+double calc(const std::vector<QString>& post_tokens)
+{
+    std::map<QChar, std::function<double(const double&, const double&)>> operations;
+    operations['+'] = [](const double& a, const double& b) { return a + b; };
+    operations['-'] = [](const double& a, const double& b) { return a - b; };
+    operations['*'] = [](const double& a, const double& b) { return a * b; };
+    operations['/'] = [](const double& a, const double& b) { return a / b; };
+    operations['^'] = [](const double& a, const double& b)
+    {
+        if (a < 0)
+            return -std::pow(std::abs(a), b);
+        return std::pow(a, b);
+    };
+    std::stack<double> result{};
+    try
+    {
+        for (auto& i : post_tokens)
+        {
+            if (is_digit(i))
+            {
+                result.push(i.toDouble());
+            }
+            if (is_oper_trig(i))
+            {
+                if (!is_binary(i))
+                {
+                    double v{ result.top() };
+                    result.pop();
+                    if (i == "sin")
+                        result.push(std::sin(v));
+                    else
+                        result.push(std::cos(v));
+                }
+                else
+                {
+                    double v2{ result.top() };
+                    result.pop();
+                    double v1{ result.top() };
+                    result.pop();
+                    double t{ operations[i[0]](v1, v2) };
+                    result.push(t);
+                }
+            }
+        }
+        return result.top();
+    }
+    catch (...)
+    {
+        return 0;
+    }
+}
 
 void MainWindow::on_n0_clicked()
 {
@@ -85,7 +310,7 @@ void MainWindow::on_comma_clicked()
             bool flag{false};
             for (int i = this->expression.length() - 1; i > 0; i--)
             {
-                if (this->expression[i] == ',')
+                if (this->expression[i] == '.')
                 {
                     flag = true;
                 }
@@ -96,7 +321,7 @@ void MainWindow::on_comma_clicked()
             }
             if (!flag)
             {
-                this->expression.append(",");
+                this->expression.append(".");
                 ui->output_screen->setPlainText(this->expression);
             }
         }
@@ -301,4 +526,24 @@ void MainWindow::on_clear_one_clicked()
         }
     }
     ui->output_screen->setPlainText(this->expression);
+}
+
+void MainWindow::on_calculate_clicked()
+{
+    bool incorrect{ false };
+    std::vector<QString> tokens;
+    incorrect = get_tokens(tokens, this->expression);
+    if (!incorrect)
+    {
+        std::vector<QString> post_tokens;
+        get_post_tokens(tokens, post_tokens);
+        double result{calc(post_tokens)};
+        this->expression = QString::number(result);
+        ui->output_screen->setPlainText(this->expression);
+    }
+    else
+    {
+        this->expression = "";
+        ui->output_screen->setPlainText(this->expression);
+    }
 }
