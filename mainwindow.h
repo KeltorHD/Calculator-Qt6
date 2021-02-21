@@ -58,6 +58,8 @@ private slots:
 
     void on_calculate_clicked();
 
+    void on_about_clicked();
+
 private:
     Ui::MainWindow *ui;
     QString expression;

@@ -1,5 +1,6 @@
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
+#include "dialog.h"
 
 #include <QtMath>
 #include <stack>
@@ -10,8 +11,7 @@ MainWindow::MainWindow(QWidget *parent)
 {
     ui->setupUi(this);
 
-    ui->output_screen->setPlainText(this->expression);
-    qDebug() << qPow(-2,2.5);
+    ui->output_screen->setPlainText("Введите выражение:");
 }
 
 MainWindow::~MainWindow()
@@ -85,7 +85,7 @@ bool get_tokens(std::vector<QString>& tokens, const QString& expression)
     QString tmp;
     bool incorrect{false};
     std::stack<QChar> check;
-    for (unsigned long long i = 0; i < expression.length(); i++)
+    for (long long i = 0; i < expression.length(); i++)
     {
         if (expression[i].isNumber() || expression[i] == '.')
         {
@@ -138,58 +138,66 @@ bool get_tokens(std::vector<QString>& tokens, const QString& expression)
     return incorrect;
 }
 
-void get_post_tokens(const std::vector<QString>& tokens, std::vector<QString>& post_tokens)
+bool get_post_tokens(const std::vector<QString>& tokens, std::vector<QString>& post_tokens)
 {
     std::stack<QString> st;
 
-    for (auto& i : tokens)
+    try
     {
-        if (is_digit(i))
+        for (auto& i : tokens)
         {
-            post_tokens.push_back(i);
-        }
-        else if (is_operation(i))
-        {
-            if (st.empty())
+            if (is_digit(i))
+            {
+                post_tokens.push_back(i);
+            }
+            else if (is_operation(i))
+            {
+                if (st.empty())
+                {
+                    st.push(i);
+                }
+                else
+                {
+                    while (!st.empty() && priority(st.top()) >= priority(i))
+                    {
+                        post_tokens.push_back(st.top());
+                        st.pop();
+                    }
+                    st.push(i);
+                }
+            }
+            else if (priority(i) == 1)
             {
                 st.push(i);
             }
-            else
+            else if (i[0] == ')')
             {
-                while (!st.empty() && priority(st.top()) >= priority(i))
+                while (priority(st.top()) != 1)
                 {
                     post_tokens.push_back(st.top());
                     st.pop();
                 }
-                st.push(i);
-            }
-        }
-        else if (priority(i) == 1)
-        {
-            st.push(i);
-        }
-        else if (i[0] == ')')
-        {
-            while (priority(st.top()) != 1)
-            {
-                post_tokens.push_back(st.top());
+                if (st.top() == "sin(" || st.top() == "cos(")
+                {
+                    post_tokens.push_back(st.top().mid(0, 3));
+                }
                 st.pop();
             }
-            if (st.top() == "sin(" || st.top() == "cos(")
-            {
-                post_tokens.push_back(st.top().mid(0, 3));
-            }
+        }
+        while (!st.empty())
+        {
+            post_tokens.push_back(st.top());
             st.pop();
         }
+        return false;
     }
-    while (!st.empty())
+    catch (...)
     {
-        post_tokens.push_back(st.top());
-        st.pop();
+        return true;
     }
 }
 
-double calc(const std::vector<QString>& post_tokens)
+double calc(const std::vector<QString>& post_tokens, bool& incorrect)
 {
     std::map<QChar, std::function<double(const double&, const double&)>> operations;
     operations['+'] = [](const double& a, const double& b) { return a + b; };
@@ -228,6 +236,8 @@ double calc(const std::vector<QString>& post_tokens)
                     result.pop();
                     double v1{ result.top() };
                     result.pop();
+                    if (i[0] == '/' && v2 == 0)
+                        incorrect = true;
                     double t{ operations[i[0]](v1, v2) };
                     result.push(t);
                 }
@@ -530,20 +540,47 @@ void MainWindow::on_clear_one_clicked()
 
 void MainWindow::on_calculate_clicked()
 {
+    if (!this->expression.length())
+        return;
+
     bool incorrect{ false };
     std::vector<QString> tokens;
     incorrect = get_tokens(tokens, this->expression);
     if (!incorrect)
     {
         std::vector<QString> post_tokens;
-        get_post_tokens(tokens, post_tokens);
-        double result{calc(post_tokens)};
-        this->expression = QString::number(result);
-        ui->output_screen->setPlainText(this->expression);
+        incorrect = get_post_tokens(tokens, post_tokens);
+
+        if (!incorrect)
+        {
+            double result{calc(post_tokens, incorrect)};
+            if (!incorrect)
+            {
+                this->expression = QString::number(result);
+                ui->output_screen->setPlainText(this->expression);
+            }
+            else
+            {
+                this->expression.clear();
+                ui->output_screen->setPlainText("Ошибка в выражении");
+            }
+        }
+        else
+        {
+            this->expression.clear();
+            ui->output_screen->setPlainText("Ошибка в выражении");
+        }
     }
     else
     {
-        this->expression = "";
-        ui->output_screen->setPlainText(this->expression);
+        this->expression.clear();
+        ui->output_screen->setPlainText("Ошибка в выражении");
     }
+}
+
+void MainWindow::on_about_clicked()
+{
+    Dialog d;
+    d.setModal(true);
+    d.exec();
 }
