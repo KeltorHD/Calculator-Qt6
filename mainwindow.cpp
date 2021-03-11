@@ -2,6 +2,7 @@
 #include "ui_mainwindow.h"
 #include "dialog.h"
 
+#include <exception>
 #include <QtMath>
 #include <stack>
 
@@ -80,10 +81,9 @@ int priority(const QString& str)
 
 
 /*токенизация*/
-bool get_tokens(std::vector<QString>& tokens, const QString& expression)
+void get_tokens(std::vector<QString>& tokens, const QString& expression)
 {
     QString tmp;
-    bool incorrect{false};
     std::stack<QChar> check;
     for (long long i = 0; i < expression.length(); i++)
     {
@@ -120,7 +120,7 @@ bool get_tokens(std::vector<QString>& tokens, const QString& expression)
                 if (expression[i] == ')')
                 {
                     if (check.empty() || check.top() != '(')
-                        incorrect = true;
+                        throw std::logic_error("Ошибка в скобках");
                     else
                         check.pop();
                 }
@@ -133,12 +133,11 @@ bool get_tokens(std::vector<QString>& tokens, const QString& expression)
     }
     if (!check.empty())
     {
-        incorrect = true;
+        throw std::logic_error("Ошибка в скобках");
     }
-    return incorrect;
 }
 
-bool get_post_tokens(const std::vector<QString>& tokens, std::vector<QString>& post_tokens)
+void get_post_tokens(const std::vector<QString>& tokens, std::vector<QString>& post_tokens)
 {
     std::stack<QString> st;
 
@@ -189,15 +188,14 @@ bool get_post_tokens(const std::vector<QString>& tokens, std::vector<QString>& p
             post_tokens.push_back(st.top());
             st.pop();
         }
-        return false;
     }
     catch (...)
     {
-        return true;
+        throw std::logic_error("Ошибка в разборе выражения");
     }
 }
 
-double calc(const std::vector<QString>& post_tokens, bool& incorrect)
+double calc(const std::vector<QString>& post_tokens)
 {
     std::map<QChar, std::function<double(const double&, const double&)>> operations;
     operations['+'] = [](const double& a, const double& b) { return a + b; };
@@ -237,18 +235,18 @@ double calc(const std::vector<QString>& post_tokens, bool& incorrect)
                     double v1{ result.top() };
                     result.pop();
                     if (i[0] == '/' && v2 == 0)
-                        incorrect = true;
+                        throw std::logic_error("Деление на ноль");
                     double t{ operations[i[0]](v1, v2) };
                     result.push(t);
                 }
             }
         }
-        return result.top();
     }
     catch (...)
     {
-        return 0;
+        throw std::logic_error("Ошибка в при вычислении");
     }
+    return result.top();
 }
 
 void MainWindow::on_n0_clicked()
@@ -394,7 +392,7 @@ void MainWindow::on_div_clicked()
 void MainWindow::on_clear_clicked()
 {
     this->expression.clear();
-    ui->output_screen->setPlainText(this->expression);
+    ui->output_screen->setPlainText("Введите выражение:");
 }
 
 void MainWindow::on_pl_per_min_clicked()
@@ -543,38 +541,22 @@ void MainWindow::on_calculate_clicked()
     if (!this->expression.length())
         return;
 
-    bool incorrect{ false };
-    std::vector<QString> tokens;
-    incorrect = get_tokens(tokens, this->expression);
-    if (!incorrect)
+    try
     {
+        std::vector<QString> tokens;
+        get_tokens(tokens, this->expression);
         std::vector<QString> post_tokens;
-        incorrect = get_post_tokens(tokens, post_tokens);
+        get_post_tokens(tokens, post_tokens);
 
-        if (!incorrect)
-        {
-            double result{calc(post_tokens, incorrect)};
-            if (!incorrect)
-            {
-                this->expression = QString::number(result);
-                ui->output_screen->setPlainText(this->expression);
-            }
-            else
-            {
-                this->expression.clear();
-                ui->output_screen->setPlainText("Ошибка в выражении");
-            }
-        }
-        else
-        {
-            this->expression.clear();
-            ui->output_screen->setPlainText("Ошибка в выражении");
-        }
+        double result{ calc(post_tokens) };
+
+        this->expression = QString::number(result);
+        ui->output_screen->setPlainText(this->expression);
     }
-    else
+    catch (std::exception& error)
     {
         this->expression.clear();
-        ui->output_screen->setPlainText("Ошибка в выражении");
+        ui->output_screen->setPlainText(error.what());
     }
 }
 
